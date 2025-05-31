@@ -1,0 +1,85 @@
+#!/bin/bash
+
+# Set repo name
+REPO_NAME=$(basename $(git rev-parse --show-toplevel))
+
+# Clone full repo (avoid depth=1 to ensure git log works properly)
+git clone https:/[Add-Github-Token-Here]@github.com/bazaartechnologies/$REPO_NAME --quiet
+cd "$REPO_NAME" || exit 1
+# Developers array (customize as needed)
+developers=("Dev One <dev1@example.com>" "Dev Two <dev2@example.com>")
+
+# Amend author randomly
+git commit --amend --author="${developers[$(($RANDOM % ${#developers[@]}))]}" --no-edit --quiet
+
+# Initialize a clean analysis repo
+mkdir ../${REPO_NAME}-analysis
+cd ../${REPO_NAME}-analysis || exit 1
+git init  --quiet
+git remote add origin https://[Add-Github-Token-Here]@github.com/[Organization-name]/$REPO_NAME
+git fetch origin --quiet
+git checkout origin/master --quiet
+#ls -R | head
+
+# Get list of recently changed files (adjust date if needed)
+VAR=$(git log origin/master --name-only --pretty=format: --since="2025-04-29")
+
+INCLUDE_ARGS=()
+while IFS= read -r file; do
+    file=$(echo "$file" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    if [[ -n "$file" && -f "$file" ]]; then
+        #echo "[+] Including file: $file"
+        INCLUDE_ARGS+=("--include=$file")
+#    else
+#        echo "[!] Skipping (not found): $file"
+    fi
+done < <(printf "%s\n" "$VAR" | sort | uniq)
+
+
+# Download rules.yaml (ensure it's done before any semgrep run)
+RULES_URL="https://raw.githubusercontent.com/[Organization-name]/semgrep_custom_rules.yml"
+curl -s -H "Authorization: token [Add-Github-Token-Here]" -H "Accept: application/vnd.github.v3.raw" -o rules.yaml "$RULES_URL"
+
+# Check if download succeeded
+if [[ ! -f rules.yaml ]]; then
+    echo "❌ Failed to download rules.yaml"
+    exit 1
+fi
+
+# Run Semgrep on specific includes if available
+if [[ ${#INCLUDE_ARGS[@]} -gt 0 ]]; then
+    SEMGR_SINGLE_OUTPUT=$(semgrep "${INCLUDE_ARGS[@]}" --config=./rules.yaml --no-git-ignore 2>&1)
+    echo "$SEMGR_SINGLE_OUTPUT"
+
+    if echo "$SEMGR_SINGLE_OUTPUT" | grep -q "missing-preauthorize-annotation"; then
+        echo "[!] Blocking issues found in Semgrep scan"
+        cd ../
+        rm -rf ${REPO_NAME}-analysis
+        rm -rf ${REPO_NAME}
+        exit 1
+    else
+        cd ../
+        rm -rf ${REPO_NAME}-analysis
+        echo "[+] No blocking issues in targeted scan"
+        # Continue to run full scan as fallback (else block)
+    fi
+else
+    echo "⚠️ No matching files to include in targeted scan"
+fi
+
+# Run fallback scan with semgrep ci
+SEMGR_OUTPUT=$(semgrep ci  2>&1)
+echo "$SEMGR_OUTPUT"
+
+if echo "$SEMGR_OUTPUT" | grep -q "Has findings for blocking rules so exiting with code 1"; then
+    echo "[!] Blocking issues found in full scan"
+    #cd ../
+    rm -rf ${REPO_NAME}
+    exit 1
+else
+    echo "[+] No blocking issues"
+    rm -rf ${REPO_NAME}
+    exit 0
+fi
+
+
