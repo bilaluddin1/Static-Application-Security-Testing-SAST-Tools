@@ -1,6 +1,5 @@
-# Static-Application-Security-Testing-SAST-Tools
+# 🛡️ Static Application Security Testing (SAST) Tools
 
-🛡️ Static Application Security Testing (SAST) Tools
 This repository is dedicated to hosting and exploring Static Application Security Testing (SAST) tools. SAST tools analyze your source code, bytecode, or binaries to detect security vulnerabilities early in the development lifecycle — before the code is compiled or deployed.
 
 🔍 What is SAST?
